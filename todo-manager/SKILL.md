@@ -56,6 +56,34 @@ All reads and writes in connected mode use the configured `GITHUB_OWNER`, `GITHU
 
 ---
 
+## Planning Index (`index.md`)
+
+`{TODO_DIR}/index.md` is a compact planning summary of all todos. It is the **primary read target** for any planning or suggestion workflow — reading it costs one API call regardless of how many todos exist.
+
+### Format
+
+```markdown
+# Todo Index
+
+> Planning summary for all managed todos. Maintained by the todo-manager skill — do not edit manually.
+> Last updated: YYYY-MM-DD
+
+| slug | title | cadence | last_performed | next_expected | urgency | seasonality | estimated_duration |
+|---|---|---|---|---|---|---|---|
+| mow-lawn | Mow the lawn | every 2 weeks | 2024-05-01 | 2024-05-15 | medium | spring through fall | 45 minutes |
+```
+
+### Rules
+
+- **Read `index.md` first** for all planning, scoring, and suggestion workflows. Do not fetch individual todo files unless you need `learnings` or freeform notes.
+- **Update `index.md` on every write.** Whenever a todo file is created, updated, or deleted, update the corresponding row in `index.md` in the same commit or as a follow-up commit. Never let the index fall out of sync.
+- **Deletions**: remove the row entirely.
+- **New todos**: append a new row.
+- The index does not include `learnings`, `requires`, or freeform notes — only fields needed for scoring and ranking.
+- In offline mode, include index updates in the pending changes log.
+
+---
+
 ## Pending Changes Log (Offline Mode)
 
 When GitHub MCP is unavailable, maintain a running log of all changes that would have been committed. Present this log inline in the conversation, updated after each action.
@@ -71,6 +99,9 @@ When GitHub MCP is unavailable, maintain a running log of all changes that would
 - last_performed: 2025-03-25
 - next_expected: 2025-04-08
 - learnings: [append] Skipped bagging due to dry conditions.
+
+## update: index.md
+- mow-lawn row: last_performed → 2025-03-25, next_expected → 2025-04-08
 
 ## add: clean-gutters
 - title: Clean gutters
@@ -89,6 +120,7 @@ When GitHub MCP is unavailable, maintain a running log of all changes that would
 - Each entry uses a header matching the intended commit message format (`add:`, `update:`, `delete:`).
 - List only the fields that would change, not the full file.
 - For `learnings`, note whether the entry is an append or a replacement.
+- Always include a corresponding `update: index.md` entry for any todo that is added, updated, or deleted.
 - Do not silently drop changes — every intended write must appear in the log.
 - At the end of the session, present the complete log and remind the user to sync it.
 
@@ -166,11 +198,11 @@ In offline mode, changes to `context.md` are included in the pending changes log
 
 When the user describes a task (new or existing):
 
-1. Check if a matching file already exists in `{TODO_DIR}/` (skip in offline mode — work from session context).
+1. Check if a matching row already exists in `{TODO_DIR}/index.md` (skip in offline mode — work from session context).
 2. If new: derive a slug, populate all fields, ask about cadence if unclear.
 3. If existing: update only the changed fields. Never overwrite `learnings` — append.
-4. In connected mode: commit with a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
-5. In offline mode: add the change to the pending log.
+4. In connected mode: write/update the individual todo file, then update the corresponding row in `index.md`. Commit both with a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
+5. In offline mode: add both the todo change and the index update to the pending log.
 
 **Ask about cadence if** the user hasn't stated it and it isn't obvious. One question, concisely:
 > "How often does this need to happen?"
@@ -183,10 +215,10 @@ When the user says they did something:
 
 1. Set `last_performed` to today's date.
 2. If the task has `cadence: once` or is otherwise a one-time task:
-   - **Connected mode**: delete the file and commit with `"delete: <slug> — one-time task completed"`.
-   - **Offline mode**: add a `delete:` entry to the pending log.
+   - **Connected mode**: delete the file and remove the row from `index.md`. Commit with `"delete: <slug> — one-time task completed"`.
+   - **Offline mode**: add `delete:` and `update: index.md` entries to the pending log.
    - **If file deletion is not available**: provide a direct link to the file and prompt the user to delete it manually.
-3. For recurring tasks: derive and set `next_expected` from cadence, append any learnings, and commit the update (or log it in offline mode).
+3. For recurring tasks: derive and set `next_expected` from cadence, append any learnings, update the todo file, and update the index row. Commit both (or log in offline mode).
 4. Confirm briefly — one line.
 
 If the user mentions a constraint while completing ("I had to borrow the neighbor's ladder"), add it to `requires` and/or `learnings` before deleting or updating.
@@ -200,8 +232,8 @@ If the user mentions a constraint while completing ("I had to borrow the neighbo
 
 When prompted:
 
-1. Read `{TODO_DIR}/context.md` for global constraints (connected mode only; use session context in offline mode).
-2. Read all todo files (or as many as needed via directory listing + selective fetch).
+1. Read `{TODO_DIR}/context.md` for global constraints.
+2. **Read `{TODO_DIR}/index.md`** to get all todos in one API call. Do not fetch individual files for planning.
 3. Score and rank tasks using all of the following, weighted together:
    - **Overdue status**: Days past `next_expected` (higher = more urgent)
    - **Explicit urgency**: `critical` > `high` > `medium` > `low`
@@ -212,10 +244,12 @@ When prompted:
 
 Format suggestions as a simple numbered list. No headers, no fluff.
 
+If the user then asks for more detail on a specific task (learnings, notes, requirements), fetch that individual file on demand.
+
 ### 4. Capturing Learnings Mid-Conversation
 
 If the user says something that reveals a durable constraint or preference:
-- Update the relevant todo's `learnings` or `requires` fields.
+- Update the relevant todo's `learnings` or `requires` fields, and update its index row if any indexed fields changed.
 - If it's global, append to `{TODO_DIR}/context.md`.
 - In offline mode, add to the pending log.
 - Do this silently unless a commit or log confirmation is needed. Minimize interruption.
@@ -233,6 +267,7 @@ If the user says something that reveals a durable constraint or preference:
 - **Respect the user's edits.** If a field in the repo differs from what you'd expect, assume the user changed it intentionally.
 - **Offline mode is not a degraded state.** Log changes faithfully and keep the session productive.
 - **Only surface actionable output.** When presenting suggestions, list only what the user should do. Do not explain why tasks were deprioritized, deferred, or excluded.
+- **Fetch individual files on demand only.** For planning, always use `index.md`. Only fetch a full todo file when the user needs its learnings, notes, or requires detail — or when writing to it.
 
 ---
 
