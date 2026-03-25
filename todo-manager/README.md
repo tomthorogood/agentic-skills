@@ -14,7 +14,55 @@ Create a GitHub repo (public or private) and a directory inside it for your todo
 
 ### 2. Connect GitHub MCP
 
-This skill requires a GitHub MCP connector in your agent environment. In Claude.ai, enable the GitHub connector via the tools menu.
+This skill requires a GitHub MCP connector in your agent environment. 
+
+### Claude 
+
+#### Web client
+
+In Claude.ai, you can try enabling the GitHub connector via the tools menu. 
+
+#### Desktop
+
+Create a [PAT]() with read/write permissions on your TODO repo, and add the following configuration to
+
+(MacOS): `/Users/$USER/Library/Application Support/Claude/claude_desktop_config.json`
+
+Make sure to replace `$GITHUB_PAT` with your PAT.
+```
+  "mcpServers": {
+    "github": {
+      "command": "/opt/homebrew/bin/npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "$GITHUB_PAT"
+      }
+    }
+  }
+```
+
+### VS Code agents
+
+`CMD+Shift+P` > `MCP: Open user configuration` 
+
+and add the following entry:
+
+```
+"github": {
+			"type": "http",
+			"url": "https://api.githubcopilot.com/mcp/",
+			"headers": {
+				"X-MCP-Toolsets": "actions,context,copilot,copilot_spaces,dependabot,discussions,git,github_support_docs_search,issues,labels,notifications,orgs,projects,pull_requests,repos"
+			}
+		}
+```
+
+Edit down the "Toolsets" list to only the capabilities you plan to use.
+
+VS Code should prompt you to authenticate when you run the server for the first time.
 
 ### 3. Provide configuration
 
@@ -31,7 +79,7 @@ The skill needs four values:
 
 ### Persisting configuration (recommended)
 
-Depending on your agent surface, you can store these values so you never have to type them again:
+Depending on your agent surface, you can store these values so you never have to type them again. Some examples:
 
 - **Claude.ai Projects** — Add them to the project's custom instructions
 - **VS Code custom agents** — Add to the agent's system prompt in `.vscode/agents/`
