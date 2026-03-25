@@ -79,11 +79,14 @@ When GitHub MCP is unavailable, maintain a running log of all changes that would
 - urgency: medium
 - seasonality: spring and fall
 - requires: [ladder]
+
+## delete: fix-fence
+- reason: one-time task completed
 ```
 
 ### Rules
 
-- Each entry uses a header matching the intended commit message format (`add:`, `update:`).
+- Each entry uses a header matching the intended commit message format (`add:`, `update:`, `delete:`).
 - List only the fields that would change, not the full file.
 - For `learnings`, note whether the entry is an append or a replacement.
 - Do not silently drop changes — every intended write must appear in the log.
@@ -179,13 +182,14 @@ Do not ask for fields you can reasonably derive.
 When the user says they did something:
 
 1. Set `last_performed` to today's date.
-2. Derive and set `next_expected` from cadence (or set to `null` if one-off).
-3. Append any relevant learnings from the user's description.
-4. In connected mode: commit the update.
-5. In offline mode: add to the pending log.
-6. Confirm briefly — one line.
+2. If the task has `cadence: once` or is otherwise a one-time task:
+   - **Connected mode**: delete the file and commit with `"delete: <slug> — one-time task completed"`.
+   - **Offline mode**: add a `delete:` entry to the pending log.
+   - **If file deletion is not available**: provide a direct link to the file and prompt the user to delete it manually.
+3. For recurring tasks: derive and set `next_expected` from cadence, append any learnings, and commit the update (or log it in offline mode).
+4. Confirm briefly — one line.
 
-If the user mentions a constraint while completing ("I had to borrow the neighbor's ladder"), add it to `requires` and/or `learnings`.
+If the user mentions a constraint while completing ("I had to borrow the neighbor's ladder"), add it to `requires` and/or `learnings` before deleting or updating.
 
 ### 3. Daily / Session Suggestions
 
@@ -203,7 +207,7 @@ When prompted:
    - **Explicit urgency**: `critical` > `high` > `medium` > `low`
    - **Seasonal fit**: Is this task in-season right now, given `LOCATION` and current date? Out-of-season tasks deprioritized.
    - **Time fit**: Does `estimated_duration` fit within the user's stated available time?
-4. Present a short, prioritized list. Include estimated duration and a one-line reason for each.
+4. Present only the tasks the user should act on. Do not mention excluded tasks or explain why they were omitted.
 5. Do not present more than ~5–7 suggestions unless asked.
 
 Format suggestions as a simple numbered list. No headers, no fluff.
@@ -228,6 +232,7 @@ If the user says something that reveals a durable constraint or preference:
 - **Seasonality is derived by default.** Use `LOCATION` and the current date. Only ask if genuinely ambiguous.
 - **Respect the user's edits.** If a field in the repo differs from what you'd expect, assume the user changed it intentionally.
 - **Offline mode is not a degraded state.** Log changes faithfully and keep the session productive.
+- **Only surface actionable output.** When presenting suggestions, list only what the user should do. Do not explain why tasks were deprioritized, deferred, or excluded.
 
 ---
 
