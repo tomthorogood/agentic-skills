@@ -5,7 +5,7 @@ description: Manage personal todos, chores, and recurring adulting tasks stored 
 
 # Todo Manager Skill
 
-Manages personal todos stored as individual Markdown files, with a pluggable storage backend. On first use, the skill detects what storage options are available and asks the user to choose one.
+Manages personal todos stored as individual Markdown files, with a pluggable storage backend. On first use, the skill inspects available tools to discover storage options and asks the user to choose one.
 
 ---
 
@@ -15,34 +15,66 @@ Before doing anything else, check whether `STORAGE_BACKEND` and `TODO_DIR` are a
 
 If not configured, run storage detection:
 
-1. **Silently probe** for available storage tools (do not narrate this to the user):
-   - **GitHub**: Are GitHub MCP tools available? (e.g., `get_file_contents`, `create_or_update_file`)
-   - **Google Drive**: Are Google Drive MCP tools available?
-   - **Local filesystem**: Are file read/write tools available? (e.g., `Read`, `Write`, `Edit`, `Bash` in a Cowork or CLI context)
+### Step 1 — Inspect available tools
 
-2. **Present options** based on what's available. Use this template, listing only detected options:
+Silently examine the tools available in the current session. Do not narrate this to the user. You are looking for toolsets that can perform the four storage operations this skill requires: **list**, **read**, **write**, and **delete** files in a persistent location.
 
-   > I can store your todos in a few different ways. Here's what's available in this session:
-   >
-   > - **GitHub** — stored as Markdown files in a GitHub repo. Version history, accessible anywhere, easy to edit manually.
-   > - **Google Drive** — stored as files in a Drive folder. Easy to browse and share.
-   > - **Local folder** — stored on your computer. Fast and private, but only accessible on this machine.
-   >
-   > If none of these work for you, I can also suggest other options you might be able to set up.
-   >
-   > Which would you like to use?
+Assess each available toolset against these criteria:
 
-3. **If no storage tools are detected**, inform the user and suggest options they could enable:
+| Capability | What to look for |
+|---|---|
+| **List** | Can you enumerate files or items in a container (directory, folder, repo, collection)? |
+| **Read** | Can you retrieve the full text content of a named file or document? |
+| **Write** | Can you create or overwrite a named file or document with arbitrary text content? |
+| **Delete** | Can you permanently remove a named file or document? |
 
-   > I don't have access to any file storage tools right now, so I can't persist your todos between sessions. Here are some options you could set up:
-   >
-   > - **GitHub connector** — connect a GitHub account to store todos in a repo
-   > - **Google Drive connector** — connect Google Drive to store todos in a folder
-   > - **Local file access** — if you're using a desktop app or CLI context, file access may be available
-   >
-   > For now, I can keep a session log of your todos and show you what to save when we're done.
+A toolset qualifies as a **full backend** if it supports list, read, and write. Delete support is noted but not required — if unavailable, the skill will prompt the user for manual deletion when needed.
 
-4. Once the user chooses, confirm the selection, ask for any required details (see Configuration), and proceed.
+Characterize each qualifying toolset in plain terms (e.g., "a GitHub repository", "a Google Drive folder", "the local filesystem"). Do not refer to tool names or API internals when presenting options to the user.
+
+### Step 2 — Present options
+
+If one or more qualifying toolsets are found, present them to the user:
+
+> I can store your todos using the following storage options I have access to right now:
+>
+> [list each option with a one-sentence description of what it means for the user — where files live, tradeoffs like version history, shareability, or device accessibility]
+>
+> Which would you like to use? If none of these work for you, I can search for other options you might be able to connect.
+
+If the user asks for other options, or if no qualifying toolsets are found, proceed to Step 3.
+
+### Step 3 — Search for additional options
+
+If a `search_mcp_registry` tool (or equivalent connector/plugin registry search) is available, use it to find storage-capable integrations. Search for terms like "file storage", "drive", "notes", "documents", or the name of a specific service the user mentioned.
+
+Present relevant results plainly:
+
+> Here are some storage integrations you could connect to use with this skill:
+>
+> [list results with a brief description of each]
+>
+> If you connect one of these, I can set up your todos there.
+
+If a `suggest_connectors` tool is available, call it to streamline the connection flow for the user.
+
+### Step 4 — No options at all
+
+If no qualifying toolsets are found and no registry search is available (or returns nothing useful):
+
+> I don't have access to any persistent file storage right now. I can keep a session log of your todos and show you what to save when we're done — but changes won't persist automatically.
+>
+> If you can connect a file storage service (like a cloud drive, notes app, or version control system), I'll be able to save your todos there. Let me know if you'd like help finding an option.
+
+Then enter offline mode and maintain the pending changes log for the session.
+
+### Step 5 — Gather required details
+
+Once the user has chosen a backend, ask for any details needed to locate or create the todo storage location (e.g., a folder name, repo name, or path). Ask for all required values in one message. Store them as `TODO_DIR` and any backend-specific config.
+
+Include this notice when prompting:
+
+> These values are needed each session unless saved somewhere persistent. You can store them in a Claude Project's instructions, an agent config file, or a similar surface. See the [todo-manager README](https://github.com/tomthorogood/agentic-skills/blob/main/todo-manager/README.md) for details.
 
 ---
 
@@ -50,27 +82,17 @@ If not configured, run storage detection:
 
 | Key | Description | Example |
 |---|---|---|
-| `STORAGE_BACKEND` | Where todos are stored | `github`, `gdrive`, `local` |
-| `TODO_DIR` | Path or folder name for todo files | `managed` (GitHub), `My Todos` (Drive), `~/todos` (local) |
+| `STORAGE_BACKEND` | A label identifying the active backend | `github`, `gdrive`, `local`, or any descriptive name |
+| `TODO_DIR` | The storage location for todo files | A folder name, repo path, drive folder ID, local path, etc. |
 | `LOCATION` | User's location for seasonal context | `Seattle, WA, USA` |
 
-**Backend-specific extras:**
-
-| Backend | Additional keys |
-|---|---|
-| `github` | `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH` |
-| `gdrive` | `GDRIVE_FOLDER_ID` (if known; otherwise search by name) |
-| `local` | None (use `TODO_DIR` as an absolute or relative path) |
+Additional backend-specific keys (e.g., repo owner, branch, folder ID) should be stored alongside these and referenced consistently throughout the session.
 
 ### Config Resolution (in order)
 
 1. **Session/project context** — if present in system prompt, agent config, or project instructions, use directly. Do not prompt.
 2. **Conversation context** — if the user provided them earlier this session, use those.
 3. **First-run detection** — run the storage detection flow above.
-
-When prompting for backend-specific details, ask for all required values in one message. Include this notice:
-
-> These values are needed each session unless saved somewhere persistent. You can store them in a Claude Project's instructions, a VS Code agent config, or a similar surface. See the [todo-manager README](https://github.com/tomthorogood/agentic-skills/blob/main/todo-manager/README.md) for details.
 
 ### Seasonality and Location
 
@@ -82,18 +104,14 @@ Do not use `LOCATION` for any purpose other than seasonal reasoning.
 
 ## Storage Operations
 
-All reads and writes go through the active `STORAGE_BACKEND`. The logical operations are the same regardless of backend; only the tools differ.
+All reads and writes go through the active backend. The four logical operations are:
 
-### Operation mapping
+- **list** — enumerate all todo slugs in `TODO_DIR`
+- **read(path)** — retrieve the full content of a file
+- **write(path, content)** — create or overwrite a file
+- **delete(path)** — permanently remove a file
 
-| Operation | GitHub | Google Drive | Local |
-|---|---|---|---|
-| List todo directory | `get_file_contents(dir)` | List files in folder | `ls` / `glob` via Bash/file tools |
-| Read a file | `get_file_contents(path)` | Get file content by ID/name | `Read` tool |
-| Write a file | `create_or_update_file(path, content)` | Create or update file | `Write` / `Edit` tool |
-| Delete a file | Not directly available — see note | Delete file by ID | `bash rm` |
-
-**GitHub delete note**: GitHub MCP does not expose a direct file delete. When a file must be deleted (e.g., completed one-time task), provide the user a direct link to the file and prompt them to delete it manually. Log this as a pending action.
+Map these to whatever tools the active backend provides. If `delete` is unavailable, provide the user a direct reference to the file (link, path, or location) and prompt them to delete it manually. Log this as a pending action.
 
 ### Offline / No Backend
 
@@ -242,7 +260,7 @@ In offline mode, changes to `context.md` go in the pending log under `update: co
 1. Check `{TODO_DIR}/index.md` for a matching row.
 2. If new: derive a slug, populate all fields, ask about cadence if unclear.
 3. If existing: update only changed fields. Never overwrite `learnings` — append.
-4. Write the todo file, then update `index.md`. Use a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
+4. Write the todo file, then update `index.md`.
 5. In offline mode: log both changes to the pending log.
 
 **Ask about cadence only if** the user hasn't stated it and it isn't obvious:
@@ -298,6 +316,7 @@ When the user reveals a durable constraint or preference:
 - **Offline mode is not a degraded state.** Log changes faithfully and keep the session productive.
 - **Only surface actionable output.** Do not explain why tasks were excluded or deprioritized.
 - **Fetch individual files on demand only.** Always use `index.md` for planning. Fetch full files only when writing or when the user needs detail.
+- **Never hardcode storage assumptions.** Always derive available backends from the tools present in the session.
 
 ---
 
