@@ -1,64 +1,109 @@
 ---
 name: todo-manager
-description: Manage personal todos, chores, and recurring adulting tasks stored as Markdown files in a GitHub repository. Use this skill whenever the user mentions tasks, chores, todos, household responsibilities, gardening, errands, or asks what they should do today/this weekend. Also use when the user wants to log that they completed something, add a new task, ask what's due, plan their day or week, or reports context that should be remembered (e.g., "I don't have the car today"). Trigger proactively even if the user doesn't say "todo" explicitly — phrases like "what should I work on", "I have a free afternoon", or "I just finished X" all warrant this skill.
+description: Manage personal todos, chores, and recurring adulting tasks stored as Markdown files. Use this skill whenever the user mentions tasks, chores, todos, household responsibilities, gardening, errands, or asks what they should do today/this weekend. Also use when the user wants to log that they completed something, add a new task, ask what's due, plan their day or week, or reports context that should be remembered (e.g., "I don't have the car today"). Trigger proactively even if the user doesn't say "todo" explicitly — phrases like "what should I work on", "I have a free afternoon", or "I just finished X" all warrant this skill.
 ---
 
 # Todo Manager Skill
 
-Manages personal todos stored as individual Markdown files in a GitHub repository, under a configurable directory.
+Manages personal todos stored as individual Markdown files, with a pluggable storage backend. On first use, the skill detects what storage options are available and asks the user to choose one.
+
+---
+
+## First Run: Storage Detection
+
+Before doing anything else, check whether `STORAGE_BACKEND` and `TODO_DIR` are already configured (see Configuration below). If they are, skip this section entirely.
+
+If not configured, run storage detection:
+
+1. **Silently probe** for available storage tools (do not narrate this to the user):
+   - **GitHub**: Are GitHub MCP tools available? (e.g., `get_file_contents`, `create_or_update_file`)
+   - **Google Drive**: Are Google Drive MCP tools available?
+   - **Local filesystem**: Are file read/write tools available? (e.g., `Read`, `Write`, `Edit`, `Bash` in a Cowork or CLI context)
+
+2. **Present options** based on what's available. Use this template, listing only detected options:
+
+   > I can store your todos in a few different ways. Here's what's available in this session:
+   >
+   > - **GitHub** — stored as Markdown files in a GitHub repo. Version history, accessible anywhere, easy to edit manually.
+   > - **Google Drive** — stored as files in a Drive folder. Easy to browse and share.
+   > - **Local folder** — stored on your computer. Fast and private, but only accessible on this machine.
+   >
+   > If none of these work for you, I can also suggest other options you might be able to set up.
+   >
+   > Which would you like to use?
+
+3. **If no storage tools are detected**, inform the user and suggest options they could enable:
+
+   > I don't have access to any file storage tools right now, so I can't persist your todos between sessions. Here are some options you could set up:
+   >
+   > - **GitHub connector** — connect a GitHub account to store todos in a repo
+   > - **Google Drive connector** — connect Google Drive to store todos in a folder
+   > - **Local file access** — if you're using a desktop app or CLI context, file access may be available
+   >
+   > For now, I can keep a session log of your todos and show you what to save when we're done.
+
+4. Once the user chooses, confirm the selection, ask for any required details (see Configuration), and proceed.
 
 ---
 
 ## Configuration
 
-This skill requires the following configuration values before it can operate:
-
 | Key | Description | Example |
 |---|---|---|
-| `GITHUB_OWNER` | GitHub username or org that owns the todos repo | `alice` |
-| `GITHUB_REPO` | Repository name | `todos` |
-| `GITHUB_BRANCH` | Branch to read/write | `main` |
-| `TODO_DIR` | Directory within the repo where todo files live | `managed` |
-| `LOCATION` | User's location, used to apply accurate seasonal context | `Seattle, WA, USA` |
+| `STORAGE_BACKEND` | Where todos are stored | `github`, `gdrive`, `local` |
+| `TODO_DIR` | Path or folder name for todo files | `managed` (GitHub), `My Todos` (Drive), `~/todos` (local) |
+| `LOCATION` | User's location for seasonal context | `Seattle, WA, USA` |
+
+**Backend-specific extras:**
+
+| Backend | Additional keys |
+|---|---|
+| `github` | `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH` |
+| `gdrive` | `GDRIVE_FOLDER_ID` (if known; otherwise search by name) |
+| `local` | None (use `TODO_DIR` as an absolute or relative path) |
 
 ### Config Resolution (in order)
 
-1. **Session/project context** — If these values are present in your system prompt, project instructions, or agent configuration, use them directly. Do not prompt the user.
-2. **Conversation context** — If the user has already provided them earlier in the conversation, use those.
-3. **Prompt the user** — If config is missing, ask for all required values at once (one message, not one at a time). Then use them for the remainder of the session.
+1. **Session/project context** — if present in system prompt, agent config, or project instructions, use directly. Do not prompt.
+2. **Conversation context** — if the user provided them earlier this session, use those.
+3. **First-run detection** — run the storage detection flow above.
 
-When prompting for config, include this notice:
+When prompting for backend-specific details, ask for all required values in one message. Include this notice:
 
-> These values are needed each session unless saved somewhere persistent. Depending on your setup, you can store them in a Claude Project's instructions, a VS Code custom agent config, a GitHub Copilot Space system prompt, or a similar surface. See the [todo-manager README](https://github.com/tomthorogood/agentic-skills/blob/main/todo-manager/README.md) for details.
-
-The global learnings file is always at `{TODO_DIR}/context.md` within the configured repo.
+> These values are needed each session unless saved somewhere persistent. You can store them in a Claude Project's instructions, a VS Code agent config, or a similar surface. See the [todo-manager README](https://github.com/tomthorogood/agentic-skills/blob/main/todo-manager/README.md) for details.
 
 ### Seasonality and Location
 
-Use `LOCATION` to apply accurate seasonal context when scoring or describing tasks. A city and country/region is sufficient. If `LOCATION` is not provided, fall back to Northern Hemisphere defaults and note the assumption.
+Use `LOCATION` to apply accurate seasonal context when scoring or describing tasks. A city and country/region is sufficient. If not provided, fall back to Northern Hemisphere temperate defaults and note the assumption.
 
-Do not use `LOCATION` for any purpose other than seasonal reasoning (e.g., do not infer timezone, language, or cultural preferences from it).
+Do not use `LOCATION` for any purpose other than seasonal reasoning.
 
 ---
 
-## GitHub Access
+## Storage Operations
 
-At the start of every session, determine whether the GitHub MCP connector is available.
+All reads and writes go through the active `STORAGE_BACKEND`. The logical operations are the same regardless of backend; only the tools differ.
 
-- **If GitHub MCP is available**: operate normally. Read from and write to the repo directly.
-- **If GitHub MCP is unavailable**: enter offline mode. Do not stop. Inform the user once:
+### Operation mapping
 
-  > "GitHub MCP is not available. I'll keep a pending changes log this session. When you're back in a connected context, sync it to apply the changes."
+| Operation | GitHub | Google Drive | Local |
+|---|---|---|---|
+| List todo directory | `get_file_contents(dir)` | List files in folder | `ls` / `glob` via Bash/file tools |
+| Read a file | `get_file_contents(path)` | Get file content by ID/name | `Read` tool |
+| Write a file | `create_or_update_file(path, content)` | Create or update file | `Write` / `Edit` tool |
+| Delete a file | Not directly available — see note | Delete file by ID | `bash rm` |
 
-  Then proceed to record all intended changes in the pending changes log (see below). Do not repeat the offline notice for every action.
+**GitHub delete note**: GitHub MCP does not expose a direct file delete. When a file must be deleted (e.g., completed one-time task), provide the user a direct link to the file and prompt them to delete it manually. Log this as a pending action.
 
-All reads and writes in connected mode use the configured `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`, and `TODO_DIR`.
+### Offline / No Backend
+
+If the chosen backend becomes unavailable mid-session, enter offline mode. Inform the user once, then maintain a pending changes log (see below). Do not repeat the offline notice.
 
 ---
 
 ## Planning Index (`index.md`)
 
-`{TODO_DIR}/index.md` is a compact planning summary of all todos. It is the **primary read target** for any planning or suggestion workflow — reading it costs one API call regardless of how many todos exist.
+`{TODO_DIR}/index.md` is a compact planning summary of all todos. It is the **primary read target** for any planning or suggestion workflow — one read operation regardless of how many todos exist.
 
 ### Format
 
@@ -76,7 +121,7 @@ All reads and writes in connected mode use the configured `GITHUB_OWNER`, `GITHU
 ### Rules
 
 - **Read `index.md` first** for all planning, scoring, and suggestion workflows. Do not fetch individual todo files unless you need `learnings` or freeform notes.
-- **Update `index.md` on every write.** Whenever a todo file is created, updated, or deleted, update the corresponding row in `index.md` in the same commit or as a follow-up commit. Never let the index fall out of sync.
+- **Update `index.md` on every write.** Whenever a todo file is created, updated, or deleted, update the corresponding row. Never let the index fall out of sync.
 - **Deletions**: remove the row entirely.
 - **New todos**: append a new row.
 - The index does not include `learnings`, `requires`, or freeform notes — only fields needed for scoring and ranking.
@@ -84,16 +129,16 @@ All reads and writes in connected mode use the configured `GITHUB_OWNER`, `GITHU
 
 ---
 
-## Pending Changes Log (Offline Mode)
+## Pending Changes Log (Offline / Unavailable Backend)
 
-When GitHub MCP is unavailable, maintain a running log of all changes that would have been committed. Present this log inline in the conversation, updated after each action.
+When the storage backend is unavailable, maintain a running log of all intended changes. Present this log inline in the conversation, updated after each action.
 
 ### Format
 
 ```markdown
 # Pending Changes
 
-> Generated: 2025-03-25. Sync these changes when GitHub MCP is available.
+> Generated: 2025-03-25. Apply these when storage is available.
 
 ## update: mow-lawn
 - last_performed: 2025-03-25
@@ -117,21 +162,19 @@ When GitHub MCP is unavailable, maintain a running log of all changes that would
 
 ### Rules
 
-- Each entry uses a header matching the intended commit message format (`add:`, `update:`, `delete:`).
+- Each entry uses a header matching the intended operation (`add:`, `update:`, `delete:`).
 - List only the fields that would change, not the full file.
-- For `learnings`, note whether the entry is an append or a replacement.
 - Always include a corresponding `update: index.md` entry for any todo that is added, updated, or deleted.
 - Do not silently drop changes — every intended write must appear in the log.
 - At the end of the session, present the complete log and remind the user to sync it.
 
-### Syncing Pending Changes
+### Syncing
 
-When the user asks to sync (or when a session begins with MCP available and a pending log is provided):
+When the user asks to sync (or storage becomes available again):
 
-1. Apply each entry in the log to the corresponding file in the repo.
-2. Commit each change with its logged message.
-3. Confirm each applied change briefly — one line per item.
-4. Note any conflicts (e.g., a file was modified in the repo since the log was generated) and ask the user how to resolve.
+1. Apply each entry to the corresponding file via the active backend.
+2. Confirm each applied change briefly — one line per item.
+3. Note any conflicts (e.g., a file was modified externally since the log was generated) and ask the user how to resolve.
 
 ---
 
@@ -164,7 +207,7 @@ Optional freeform notes here.
 - **next_expected**: `YYYY-MM-DD` or `null`. Derive from `last_performed + cadence` when possible.
 - **estimated_duration**: Use natural units — minutes, hours, or days. Be specific (e.g., "2 hours" not "long").
 - **urgency**: One of `low`, `medium`, `high`, `critical`. Derive from context unless stated. Consider overdue status, season, and consequences of delay.
-- **seasonality**: Derive from task context and `LOCATION` unless stated. Use natural language. If a task has no seasonal constraint, omit the field or write `year-round`.
+- **seasonality**: Derive from task context and `LOCATION` unless stated. If no seasonal constraint, omit or write `year-round`.
 - **requires**: List of dependencies inferred or stated (tools, vehicle, weather, etc.). Update from user context.
 - **learnings**: Bullet list. Append new entries; never delete existing ones unless the user explicitly asks.
 
@@ -188,7 +231,7 @@ Format entries as bullet points with a derived date:
 - [2024-05-12] Prefers outdoor tasks completed before noon.
 ```
 
-In offline mode, changes to `context.md` are included in the pending changes log under the header `update: context`.
+In offline mode, changes to `context.md` go in the pending log under `update: context`.
 
 ---
 
@@ -196,84 +239,69 @@ In offline mode, changes to `context.md` are included in the pending changes log
 
 ### 1. Adding or Updating a Todo
 
-When the user describes a task (new or existing):
-
-1. Check if a matching row already exists in `{TODO_DIR}/index.md` (skip in offline mode — work from session context).
+1. Check `{TODO_DIR}/index.md` for a matching row.
 2. If new: derive a slug, populate all fields, ask about cadence if unclear.
-3. If existing: update only the changed fields. Never overwrite `learnings` — append.
-4. In connected mode: write/update the individual todo file, then update the corresponding row in `index.md`. Commit both with a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
-5. In offline mode: add both the todo change and the index update to the pending log.
+3. If existing: update only changed fields. Never overwrite `learnings` — append.
+4. Write the todo file, then update `index.md`. Use a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
+5. In offline mode: log both changes to the pending log.
 
-**Ask about cadence if** the user hasn't stated it and it isn't obvious. One question, concisely:
+**Ask about cadence only if** the user hasn't stated it and it isn't obvious:
 > "How often does this need to happen?"
 
 Do not ask for fields you can reasonably derive.
 
 ### 2. Marking a Task Complete
 
-When the user says they did something:
-
 1. Set `last_performed` to today's date.
-2. If the task has `cadence: once` or is otherwise a one-time task:
-   - **Connected mode**: delete the file and remove the row from `index.md`. Commit with `"delete: <slug> — one-time task completed"`.
-   - **Offline mode**: add `delete:` and `update: index.md` entries to the pending log.
-   - **If file deletion is not available**: provide a direct link to the file and prompt the user to delete it manually.
-3. For recurring tasks: derive and set `next_expected` from cadence, append any learnings, update the todo file, and update the index row. Commit both (or log in offline mode).
+2. If `cadence: once` or a one-time task:
+   - Delete the file (or prompt user if deletion isn't available) and remove its row from `index.md`.
+   - In offline mode: log a `delete:` entry and an `update: index.md` entry.
+3. For recurring tasks: derive `next_expected`, append any learnings, update the file and index row.
 4. Confirm briefly — one line.
 
-If the user mentions a constraint while completing ("I had to borrow the neighbor's ladder"), add it to `requires` and/or `learnings` before deleting or updating.
+If the user mentions a constraint while completing, add it to `requires` and/or `learnings` first.
 
 ### 3. Daily / Session Suggestions
 
-**Only offer suggestions when explicitly prompted.** Example triggers:
-- "What should I do today?"
-- "I have 3 hours Saturday morning, what's most important?"
-- "What's due this week?"
-
-When prompted:
+**Only offer suggestions when explicitly prompted.**
 
 1. Read `{TODO_DIR}/context.md` for global constraints.
-2. **Read `{TODO_DIR}/index.md`** to get all todos in one API call. Do not fetch individual files for planning.
-3. Score and rank tasks using all of the following, weighted together:
-   - **Overdue status**: Days past `next_expected` (higher = more urgent)
+2. Read `{TODO_DIR}/index.md` to get all todos in one operation. Do not fetch individual files for planning.
+3. Score and rank using:
+   - **Overdue status**: days past `next_expected`
    - **Explicit urgency**: `critical` > `high` > `medium` > `low`
-   - **Seasonal fit**: Is this task in-season right now, given `LOCATION` and current date? Out-of-season tasks deprioritized.
-   - **Time fit**: Does `estimated_duration` fit within the user's stated available time?
-4. Present only the tasks the user should act on. Do not mention excluded tasks or explain why they were omitted.
-5. Do not present more than ~5–7 suggestions unless asked.
+   - **Seasonal fit**: in-season given `LOCATION` and current date
+   - **Time fit**: `estimated_duration` vs. stated available time
+4. Present only actionable tasks — no more than 5–7 unless asked. Do not explain omissions.
 
-Format suggestions as a simple numbered list. No headers, no fluff.
+Format as a simple numbered list. No headers, no fluff.
 
-If the user then asks for more detail on a specific task (learnings, notes, requirements), fetch that individual file on demand.
+Fetch individual files only if the user asks for learnings, notes, or requirements on a specific task.
 
 ### 4. Capturing Learnings Mid-Conversation
 
-If the user says something that reveals a durable constraint or preference:
-- Update the relevant todo's `learnings` or `requires` fields, and update its index row if any indexed fields changed.
-- If it's global, append to `{TODO_DIR}/context.md`.
-- In offline mode, add to the pending log.
-- Do this silently unless a commit or log confirmation is needed. Minimize interruption.
+When the user reveals a durable constraint or preference:
+- Update the relevant todo's `learnings`/`requires`, and update its index row if any indexed fields changed.
+- If global, append to `context.md`.
+- Do this silently unless a write confirmation is needed.
 
 ---
 
 ## Behavioral Rules
 
 - **Do not volunteer suggestions** unless explicitly asked.
-- **Do not ask multiple questions at once.** If clarification is needed, ask one thing.
+- **Do not ask multiple questions at once.** One question at a time.
 - **Do not over-explain updates.** A one-line confirmation is sufficient.
-- **Derive, don't ask**, when the answer is reasonably inferrable from context.
-- **Prefer seamless commits.** The user can review history in GitHub at any time.
-- **Seasonality is derived by default.** Use `LOCATION` and the current date. Only ask if genuinely ambiguous.
-- **Respect the user's edits.** If a field in the repo differs from what you'd expect, assume the user changed it intentionally.
+- **Derive, don't ask**, when the answer is reasonably inferrable.
+- **Seasonality is derived by default.** Use `LOCATION` and current date. Only ask if genuinely ambiguous.
+- **Respect the user's edits.** If a field in storage differs from what you'd expect, assume it was changed intentionally.
 - **Offline mode is not a degraded state.** Log changes faithfully and keep the session productive.
-- **Only surface actionable output.** When presenting suggestions, list only what the user should do. Do not explain why tasks were deprioritized, deferred, or excluded.
-- **Fetch individual files on demand only.** For planning, always use `index.md`. Only fetch a full todo file when the user needs its learnings, notes, or requires detail — or when writing to it.
+- **Only surface actionable output.** Do not explain why tasks were excluded or deprioritized.
+- **Fetch individual files on demand only.** Always use `index.md` for planning. Fetch full files only when writing or when the user needs detail.
 
 ---
 
 ## Urgency Derivation Guide
-
-Use this to derive urgency when not stated:
 
 | Signal | Urgency |
 |---|---|
@@ -288,7 +316,7 @@ Use this to derive urgency when not stated:
 
 ## Seasonality Reference
 
-Use `LOCATION` to determine hemisphere and local climate. The defaults below assume Northern Hemisphere temperate climate; adjust for Southern Hemisphere (invert months) or tropical/arid climates (use wet/dry seasons instead) as appropriate.
+Use `LOCATION` to determine hemisphere and local climate. Defaults below assume Northern Hemisphere temperate; invert months for Southern Hemisphere, or use wet/dry seasons for tropical/arid climates.
 
 - **Gardening / outdoor planting**: March–October active; February for prep; November–January dormant
 - **Lawn care**: March–November; peak April–September
