@@ -1,28 +1,50 @@
 ---
 name: todo-manager
-description: Manage personal todos, chores, and recurring adulting tasks stored as Markdown files in the tomthorogood/todos GitHub repository under the `managed/` directory. Use this skill whenever the user mentions tasks, chores, todos, household responsibilities, gardening, errands, or asks what they should do today/this weekend. Also use when the user wants to log that they completed something, add a new task, ask what's due, plan their day or week, or reports context that should be remembered (e.g., "I don't have the car today"). Trigger proactively even if the user doesn't say "todo" explicitly — phrases like "what should I work on", "I have a free afternoon", or "I just finished X" all warrant this skill.
+description: Manage personal todos, chores, and recurring adulting tasks stored as Markdown files in a GitHub repository. Use this skill whenever the user mentions tasks, chores, todos, household responsibilities, gardening, errands, or asks what they should do today/this weekend. Also use when the user wants to log that they completed something, add a new task, ask what's due, plan their day or week, or reports context that should be remembered (e.g., "I don't have the car today"). Trigger proactively even if the user doesn't say "todo" explicitly — phrases like "what should I work on", "I have a free afternoon", or "I just finished X" all warrant this skill.
 ---
 
 # Todo Manager Skill
 
-Manages personal todos stored as individual Markdown files in `tomthorogood/todos`, under the `managed/` directory.
+Manages personal todos stored as individual Markdown files in a GitHub repository, under a configurable directory.
+
+---
+
+## Configuration
+
+This skill requires the following configuration values before it can operate:
+
+| Key | Description | Example |
+|---|---|---|
+| `GITHUB_OWNER` | GitHub username or org that owns the todos repo | `alice` |
+| `GITHUB_REPO` | Repository name | `todos` |
+| `GITHUB_BRANCH` | Branch to read/write | `main` |
+| `TODO_DIR` | Directory within the repo where todo files live | `managed` |
+
+### Config Resolution (in order)
+
+1. **Session/project context** — If these values are present in your system prompt, project instructions, or agent configuration, use them directly. Do not prompt the user.
+2. **Conversation context** — If the user has already provided them earlier in the conversation, use those.
+3. **Prompt the user** — If config is missing, ask for all required values at once (one message, not one at a time). Then use them for the remainder of the session.
+
+When prompting for config, include this notice:
+
+> These values are needed each session unless saved somewhere persistent. Depending on your setup, you can store them in a Claude Project's instructions, a VS Code custom agent config, a GitHub Copilot Space system prompt, or a similar surface. See the [todo-manager README](https://github.com/tomthorogood/agentic-skills/blob/main/todo-manager/README.md) for details.
+
+The global learnings file is always at `{TODO_DIR}/context.md` within the configured repo.
+
+---
 
 ## GitHub Access
 
-Use the GitHub connector/MCP available in the session. The target repo is:
-- **Owner**: `tomthorogood`
-- **Repo**: `todos`
-- **Branch**: `main`
-- **Todo directory**: `managed/`
-- **Global learnings file**: `managed/context.md`
-
 **This skill requires the GitHub MCP connector.** If GitHub MCP tools are unavailable, stop and tell the user: "GitHub MCP is not available — cannot proceed." Do not fall back to manual file editing instructions.
+
+All reads and writes use the configured `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`, and `TODO_DIR`.
 
 ---
 
 ## File Format
 
-Each todo is a single Markdown file at `managed/<slug>.md`. The slug is lowercase, hyphenated (e.g., `mow-lawn.md`).
+Each todo is a single Markdown file at `{TODO_DIR}/<slug>.md`. The slug is lowercase, hyphenated (e.g., `mow-lawn.md`).
 
 ```markdown
 ---
@@ -57,7 +79,7 @@ Optional freeform notes here.
 
 ## Global Learnings File
 
-`managed/context.md` stores preferences and learned context that apply across all todos. Read this file at the start of any session involving planning or suggestions.
+`{TODO_DIR}/context.md` stores preferences and learned context that apply across all todos. Read this file at the start of any session involving planning or suggestions.
 
 Append to it when the user reveals something durable and general:
 - Scheduling constraints ("I don't drive on Sundays")
@@ -81,7 +103,7 @@ Format entries as bullet points with a derived date:
 
 When the user describes a task (new or existing):
 
-1. Check if a matching file already exists in `managed/`.
+1. Check if a matching file already exists in `{TODO_DIR}/`.
 2. If new: derive a slug, populate all fields, ask about cadence if unclear.
 3. If existing: update only the changed fields. Never overwrite `learnings` — append.
 4. Commit with a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
@@ -112,7 +134,7 @@ If the user mentions a constraint while completing ("I had to borrow the neighbo
 
 When prompted:
 
-1. Read `managed/context.md` for global constraints.
+1. Read `{TODO_DIR}/context.md` for global constraints.
 2. Read all todo files (or as many as needed via directory listing + selective fetch).
 3. Score and rank tasks using all of the following, weighted together:
    - **Overdue status**: Days past `next_expected` (higher = more urgent)
@@ -128,7 +150,7 @@ Format suggestions as a simple numbered list. No headers, no fluff.
 
 If the user says something that reveals a durable constraint or preference:
 - Update the relevant todo's `learnings` or `requires` fields.
-- If it's global, append to `managed/copilot-instructions.md`.
+- If it's global, append to `{TODO_DIR}/context.md`.
 - Do this silently unless a commit confirmation is needed. Minimize interruption.
 
 ---
