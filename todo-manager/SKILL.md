@@ -43,9 +43,60 @@ Do not use `LOCATION` for any purpose other than seasonal reasoning (e.g., do no
 
 ## GitHub Access
 
-**This skill requires the GitHub MCP connector.** If GitHub MCP tools are unavailable, stop and tell the user: "GitHub MCP is not available — cannot proceed." Do not fall back to manual file editing instructions.
+At the start of every session, determine whether the GitHub MCP connector is available.
 
-All reads and writes use the configured `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`, and `TODO_DIR`.
+- **If GitHub MCP is available**: operate normally. Read from and write to the repo directly.
+- **If GitHub MCP is unavailable**: enter offline mode. Do not stop. Inform the user once:
+
+  > "GitHub MCP is not available. I'll keep a pending changes log this session. When you're back in a connected context, sync it to apply the changes."
+
+  Then proceed to record all intended changes in the pending changes log (see below). Do not repeat the offline notice for every action.
+
+All reads and writes in connected mode use the configured `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`, and `TODO_DIR`.
+
+---
+
+## Pending Changes Log (Offline Mode)
+
+When GitHub MCP is unavailable, maintain a running log of all changes that would have been committed. Present this log inline in the conversation, updated after each action.
+
+### Format
+
+```markdown
+# Pending Changes
+
+> Generated: 2025-03-25. Sync these changes when GitHub MCP is available.
+
+## update: mow-lawn
+- last_performed: 2025-03-25
+- next_expected: 2025-04-08
+- learnings: [append] Skipped bagging due to dry conditions.
+
+## add: clean-gutters
+- title: Clean gutters
+- cadence: every 6 months
+- estimated_duration: 2 hours
+- urgency: medium
+- seasonality: spring and fall
+- requires: [ladder]
+```
+
+### Rules
+
+- Each entry uses a header matching the intended commit message format (`add:`, `update:`).
+- List only the fields that would change, not the full file.
+- For `learnings`, note whether the entry is an append or a replacement.
+- Do not silently drop changes — every intended write must appear in the log.
+- At the end of the session, present the complete log and remind the user to sync it.
+
+### Syncing Pending Changes
+
+When the user asks to sync (or when a session begins with MCP available and a pending log is provided):
+
+1. Apply each entry in the log to the corresponding file in the repo.
+2. Commit each change with its logged message.
+3. Confirm each applied change briefly — one line per item.
+4. Note any conflicts (e.g., a file was modified in the repo since the log was generated) and ask the user how to resolve.
 
 ---
 
@@ -102,6 +153,8 @@ Format entries as bullet points with a derived date:
 - [2024-05-12] Prefers outdoor tasks completed before noon.
 ```
 
+In offline mode, changes to `context.md` are included in the pending changes log under the header `update: context`.
+
 ---
 
 ## Core Workflows
@@ -110,10 +163,11 @@ Format entries as bullet points with a derived date:
 
 When the user describes a task (new or existing):
 
-1. Check if a matching file already exists in `{TODO_DIR}/`.
+1. Check if a matching file already exists in `{TODO_DIR}/` (skip in offline mode — work from session context).
 2. If new: derive a slug, populate all fields, ask about cadence if unclear.
 3. If existing: update only the changed fields. Never overwrite `learnings` — append.
-4. Commit with a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
+4. In connected mode: commit with a brief message: `"add: mow-lawn"` or `"update: mow-lawn — marked complete"`.
+5. In offline mode: add the change to the pending log.
 
 **Ask about cadence if** the user hasn't stated it and it isn't obvious. One question, concisely:
 > "How often does this need to happen?"
@@ -127,8 +181,9 @@ When the user says they did something:
 1. Set `last_performed` to today's date.
 2. Derive and set `next_expected` from cadence (or set to `null` if one-off).
 3. Append any relevant learnings from the user's description.
-4. Commit the update.
-5. Confirm briefly — one line.
+4. In connected mode: commit the update.
+5. In offline mode: add to the pending log.
+6. Confirm briefly — one line.
 
 If the user mentions a constraint while completing ("I had to borrow the neighbor's ladder"), add it to `requires` and/or `learnings`.
 
@@ -141,7 +196,7 @@ If the user mentions a constraint while completing ("I had to borrow the neighbo
 
 When prompted:
 
-1. Read `{TODO_DIR}/context.md` for global constraints.
+1. Read `{TODO_DIR}/context.md` for global constraints (connected mode only; use session context in offline mode).
 2. Read all todo files (or as many as needed via directory listing + selective fetch).
 3. Score and rank tasks using all of the following, weighted together:
    - **Overdue status**: Days past `next_expected` (higher = more urgent)
@@ -158,7 +213,8 @@ Format suggestions as a simple numbered list. No headers, no fluff.
 If the user says something that reveals a durable constraint or preference:
 - Update the relevant todo's `learnings` or `requires` fields.
 - If it's global, append to `{TODO_DIR}/context.md`.
-- Do this silently unless a commit confirmation is needed. Minimize interruption.
+- In offline mode, add to the pending log.
+- Do this silently unless a commit or log confirmation is needed. Minimize interruption.
 
 ---
 
@@ -171,6 +227,7 @@ If the user says something that reveals a durable constraint or preference:
 - **Prefer seamless commits.** The user can review history in GitHub at any time.
 - **Seasonality is derived by default.** Use `LOCATION` and the current date. Only ask if genuinely ambiguous.
 - **Respect the user's edits.** If a field in the repo differs from what you'd expect, assume the user changed it intentionally.
+- **Offline mode is not a degraded state.** Log changes faithfully and keep the session productive.
 
 ---
 
