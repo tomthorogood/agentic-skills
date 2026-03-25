@@ -19,6 +19,7 @@ This skill requires the following configuration values before it can operate:
 | `GITHUB_REPO` | Repository name | `todos` |
 | `GITHUB_BRANCH` | Branch to read/write | `main` |
 | `TODO_DIR` | Directory within the repo where todo files live | `managed` |
+| `LOCATION` | User's location, used to apply accurate seasonal context | `Seattle, WA, USA` |
 
 ### Config Resolution (in order)
 
@@ -31,6 +32,12 @@ When prompting for config, include this notice:
 > These values are needed each session unless saved somewhere persistent. Depending on your setup, you can store them in a Claude Project's instructions, a VS Code custom agent config, a GitHub Copilot Space system prompt, or a similar surface. See the [todo-manager README](https://github.com/tomthorogood/agentic-skills/blob/main/todo-manager/README.md) for details.
 
 The global learnings file is always at `{TODO_DIR}/context.md` within the configured repo.
+
+### Seasonality and Location
+
+Use `LOCATION` to apply accurate seasonal context when scoring or describing tasks. A city and country/region is sufficient. If `LOCATION` is not provided, fall back to Northern Hemisphere defaults and note the assumption.
+
+Do not use `LOCATION` for any purpose other than seasonal reasoning (e.g., do not infer timezone, language, or cultural preferences from it).
 
 ---
 
@@ -71,7 +78,7 @@ Optional freeform notes here.
 - **next_expected**: `YYYY-MM-DD` or `null`. Derive from `last_performed + cadence` when possible.
 - **estimated_duration**: Use natural units — minutes, hours, or days. Be specific (e.g., "2 hours" not "long").
 - **urgency**: One of `low`, `medium`, `high`, `critical`. Derive from context unless stated. Consider overdue status, season, and consequences of delay.
-- **seasonality**: Derive from task context unless stated. Use natural language. If a task has no seasonal constraint, omit the field or write `year-round`.
+- **seasonality**: Derive from task context and `LOCATION` unless stated. Use natural language. If a task has no seasonal constraint, omit the field or write `year-round`.
 - **requires**: List of dependencies inferred or stated (tools, vehicle, weather, etc.). Update from user context.
 - **learnings**: Bullet list. Append new entries; never delete existing ones unless the user explicitly asks.
 
@@ -139,7 +146,7 @@ When prompted:
 3. Score and rank tasks using all of the following, weighted together:
    - **Overdue status**: Days past `next_expected` (higher = more urgent)
    - **Explicit urgency**: `critical` > `high` > `medium` > `low`
-   - **Seasonal fit**: Is this task in-season right now? Out-of-season tasks deprioritized.
+   - **Seasonal fit**: Is this task in-season right now, given `LOCATION` and current date? Out-of-season tasks deprioritized.
    - **Time fit**: Does `estimated_duration` fit within the user's stated available time?
 4. Present a short, prioritized list. Include estimated duration and a one-line reason for each.
 5. Do not present more than ~5–7 suggestions unless asked.
@@ -162,7 +169,7 @@ If the user says something that reveals a durable constraint or preference:
 - **Do not over-explain updates.** A one-line confirmation is sufficient.
 - **Derive, don't ask**, when the answer is reasonably inferrable from context.
 - **Prefer seamless commits.** The user can review history in GitHub at any time.
-- **Seasonality is derived by default.** Use the current date and task context to determine it. Only ask if genuinely ambiguous.
+- **Seasonality is derived by default.** Use `LOCATION` and the current date. Only ask if genuinely ambiguous.
 - **Respect the user's edits.** If a field in the repo differs from what you'd expect, assume the user changed it intentionally.
 
 ---
@@ -182,9 +189,9 @@ Use this to derive urgency when not stated:
 
 ---
 
-## Seasonality Reference (Northern Hemisphere defaults)
+## Seasonality Reference
 
-Adjust based on learnings if user location is known.
+Use `LOCATION` to determine hemisphere and local climate. The defaults below assume Northern Hemisphere temperate climate; adjust for Southern Hemisphere (invert months) or tropical/arid climates (use wet/dry seasons instead) as appropriate.
 
 - **Gardening / outdoor planting**: March–October active; February for prep; November–January dormant
 - **Lawn care**: March–November; peak April–September
